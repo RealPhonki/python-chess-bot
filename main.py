@@ -3,6 +3,7 @@ from mouse import *
 from bot import *
 import pygame as pg
 import argparse
+from chess import BLACK
 
 parser = argparse.ArgumentParser(prog='Chess Bot')
 parser.add_argument('--mode', help="Select the mode, args are \"human-vs-human\", \"human-vs-bot\", and \"bot-vs-bot\"")
@@ -31,7 +32,7 @@ class App():
         # class attributes
         self.board = chess.Board()
         self.mouse = Mouse(self)
-        self.bot = ChessBot(self, search_depth = 10)
+        self.bot = ChessBot(BLACK)
 
         # game information
         self.piece_to_promote_to = "q"
@@ -156,7 +157,7 @@ class App():
                 if event.key == pg.K_k: self.piece_to_promote_to = "n"
                 if event.key == pg.K_b: self.piece_to_promote_to = "b"
 
-                if event.key == pg.K_e: print(f"Current Material Advantage: {self.bot.evaluate_board(self.board)}")
+                if event.key == pg.K_e: print(f"Material advantage: {self.bot.evaluate(self.board)}")
 
     def update(self):
         # player plays both sides
@@ -170,8 +171,7 @@ class App():
 
             # bots turn
             else:
-                is_playing_white = (self.player_color != "white")       # bot plays opposite color
-                move_object = self.bot.get_best_move(self.board, is_playing_white)
+                move_object = self.bot.get_best_move(self.board)
 
                 piece = str(self.board.piece_at(move_object.from_square))
                 first_square = self.mouse.square_to_coord(move_object.from_square)
@@ -182,10 +182,7 @@ class App():
 
         # bot plays both sides
         elif self.mode == "bot-vs-bot":
-            if self.board.turn: is_playing_white = True
-            else:               is_playing_white = False
-            
-            move_object = self.bot.get_best_move(self.board, is_playing_white)
+            move_object = self.bot.get_best_move(self.board)
 
             piece = str(self.board.piece_at(move_object.from_square))
             first_square = self.mouse.square_to_coord(move_object.from_square)
@@ -200,7 +197,7 @@ class App():
             self.handle_events()
             self.update()
             self.clock.tick(FPS)
-            pg.display.set_caption(f"CHESS GAME LOL AND YES THIS IS MADE BY PHONG                      FPS: {str(round(self.clock.get_fps(), 2))}")
+            pg.display.set_caption(f"PHONG'S CHESS BOT                      FPS: {str(round(self.clock.get_fps(), 2))}")
 
 if __name__ == '__main__':
     app = App()

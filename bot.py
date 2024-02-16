@@ -1,121 +1,140 @@
-import chess, time, random, os
+# external imports
+import chess
+import os
 
-class ChessBot():
-    piece_values = {
-        chess.PAWN: 1,
-        chess.KNIGHT: 3,
-        chess.BISHOP: 3,
-        chess.ROOK: 5,
-        chess.QUEEN: 9
-    }
+# local imports
+from eval_config import piece_values, square_table
 
-    def __init__(self, app, search_depth):
-        self.app = app
-        self.search_depth = search_depth
-        self.transposition_table = {}
+class ChessBot:
+    def __init__(self, color: chess.Color) -> None:
+        self.SEARCH_DEPTH = 4
+        self.COLOR = color
 
-    def evaluate_board(self, board):
+    def evaluate(self, board: chess.Board) -> float:
         if board.is_checkmate():
-            if board.turn: return float('-inf')
-            else:          return float('inf')
+            if board.turn == chess.WHITE:
+                return float("-inf")
+            if board.turn == chess.BLACK:
+                return float("inf")
+        
+        white_material = 0
+        black_material = 0
 
-        score = 0
-
+        # loop through every square in the board
         for square in chess.SQUARES:
             piece = board.piece_at(square)
-            if piece is not None:
-                piece_value = self.piece_values.get(piece.piece_type, 0)
-                score += piece_value if piece.color == chess.WHITE else -piece_value
+            if not piece:
+                continue
+            # get the piece value
+            piece_value = piece_values[piece.piece_type]
 
-        return score
-        
-    def mvv_lva_ordering(self, board):
-        return sorted(board.legal_moves, key=lambda move: self.piece_values.get(board.piece_type_at(move.to_square), 0), reverse=True)
+            # get the piece positional value
+            row, col = chess.square_rank(square), chess.square_file(square)
+            flipped_square = chess.square(col, 7 - row)
+            lookup_square = square if piece.color == chess.BLACK else flipped_square
+            positional_value = square_table[piece.piece_type][lookup_square]
 
-    def alphabeta(self, board, depth, alpha, beta, maximizing):
-        # if this position has already been reached then return
-        fen_key = board.fen()
-        if fen_key in self.transposition_table:
-            return self.transposition_table[fen_key]
+            # add material to total
+            if piece.color == chess.WHITE:
+                white_material += piece_value + positional_value
+            else:
+                black_material += piece_value + positional_value
 
-        # if this is a leaf node then return the value
-        if depth <= 0:
-            return self.evaluate_board(board)
+        return round(white_material - black_material, 2)
 
-        # debug
-        self.searched_nodes += 1
+    def minimax(self, board: chess.Board, depth, alpha: float, beta: float) -> float:
+        # check if a leaf node has been reached
+        if depth == 0:
+            self.leaf_nodes += 1
+            return self.evaluate(board)
 
-        if maximizing:
-            best_score = float('-inf')
-            for move in self.mvv_lva_ordering(board):
-                copy = board.copy()
-                copy.push(move)
+        # white to play
+        if board.turn:
+            # initialize search data
+            best_evaluation = float("-inf")
 
-                if not board.is_capture(move):
-                    depth -= 1
+            for move in board.legal_moves:
+                # search sub tree and return the evaluation
+                board.push(move)
+                evaluation = self.minimax(board, depth - 1, alpha, beta)
+                board.pop()
 
-                score = self.alphabeta(copy, depth - 1, alpha, beta, False)
-                best_score = max(best_score, score)
-                alpha = max(alpha, best_score)
+                # store the move if it is better than the old best move
+                if evaluation > best_evaluation:
+                    best_evaluation = evaluation
+                    self.best_variation[self.SEARCH_DEPTH - depth] = board.san(move)
+                
+                # update alpha
+                alpha = max(alpha, evaluation)
 
-                if beta <= alpha:
+                # prune remaining branches
+                if alpha >= beta:
                     break
-            
-            return best_score
+
         else:
-            best_score = float('inf')
-            for move in self.mvv_lva_ordering(board):
-                copy = board.copy()
-                copy.push(move)
+            # initialize search data
+            best_evaluation = float("inf")
 
-                if not board.is_capture(move):
-                    depth -= 1
+            for move in board.legal_moves:
+                # search sub tree and return the evaluation
+                board.push(move)
+                evaluation = self.minimax(board, depth - 1, alpha, beta)
+                board.pop()
 
-                score = self.alphabeta(copy, depth - 1, alpha, beta, True)
-                best_score = min(best_score, score)
-                beta = min(beta, best_score)
-                if beta <= alpha:
+                # store the move if it is better than the old best move
+                if evaluation < best_evaluation:
+                    best_evaluation = evaluation
+                    self.best_variation[self.SEARCH_DEPTH - depth] = board.san(move)
+
+                # update beta
+                beta = min(beta, evaluation)
+
+                if alpha >= beta:
                     break
-            
-            self.transposition_table[fen_key] = best_score
-            return best_score
 
-    def get_best_move(self, board, maximizing):
+        return best_evaluation
 
-        # debug values
-        start_time = time.time()
-        self.searched_nodes = 0
+    def get_best_move(self, board: chess.Board) -> chess.Move:
+        # initialize search data, assume the bot is playing black
+        self.leaf_nodes = 0
+        self.best_variation = [None] * self.SEARCH_DEPTH
+        best_move = None
+        best_evaluation = float("inf")
+        all_evaluations = []
 
-        # algorithm values
-        best_move  = None
-        best_score = float('-inf') if maximizing else float(' inf')
-        alpha      = float(' inf') if maximizing else float('-inf')
-        beta       = float('-inf') if maximizing else float(' inf')
-        self.transposition_table.clear()
+        for iteration, move in enumerate(board.legal_moves):
+            # search sub tree and return the evaluation
+            board.push(move)
+            evaluation = self.minimax(board, self.SEARCH_DEPTH - 1, alpha = float("-inf"), beta = float("inf"))
+            board.pop()
 
-        # loop through every possible move
-        for i, move in enumerate(self.mvv_lva_ordering(board)):
             # debug
-            os.system('clear')
-            print(f"Calculating... {i+1}/{len(list(board.legal_moves))}")
+            all_evaluations.append([board.san(move), evaluation])
+            os.system("clear")
+            print(f"Searched {iteration+1}/{len(list(board.legal_moves))} moves")
 
-            # play the move
-            copy = board.copy()
-            copy.push(move)
-
-            # evaluate that move, if this is a better move than the currently saved move then save it
-            score = self.alphabeta(copy, self.search_depth - 1, alpha, beta, not maximizing)
-            if (maximizing and (score > best_score)) or (not maximizing and (score < best_score)):
-                best_score = score
+            # store the move if it is better than the old best move
+            if evaluation < best_evaluation:
                 best_move = move
-
-        # if the bot cannot escape checkmate it returns no best move, so this catches that error
+                best_evaluation = evaluation
+                self.best_variation[0] = board.san(move)
+        
         if best_move == None:
-            if board.legal_moves != []:
-                return random.choice(list(board.legal_moves))
-            exit()
+            return list(board.legal_moves)[0]
 
         # debug
-        print(f"Time Elapsed: {round(time.time() - start_time, 2)}, Searched Nodes: {self.searched_nodes}, Best Eval: {best_score}")
+        print("-"*16)
+        print(f"Best evaluation: {best_evaluation}, Leaf nodes: {self.leaf_nodes}")
         
+        print("Depth 0 evaluations: ", end="")
+        for move, evaluation in all_evaluations:
+            print(f"{move}: {evaluation}, ", end="")
+        print()
+
+        print("Best variation: ", end="")
+        for move in self.best_variation:
+            print(move, end=", ")
+        print()
+
         return best_move
+
